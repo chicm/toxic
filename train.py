@@ -26,10 +26,10 @@ def _reduce_loss(loss):
     #print('loss shape:', loss.shape)
     return loss.sum() / loss.shape[0]
 
-def criterion(output, output_aux, target, target_aux):
-    loss1 = _reduce_loss(c(output, target.float()))
-    loss2 = _reduce_loss(c(output_aux, target_aux.float()))
-    return loss1 * 5 + loss2
+def criterion(output, output_aux, target, target_aux, weights):
+    loss1 = _reduce_loss(c(output, target.float()) * weights)
+    loss2 = _reduce_loss(c(output_aux, target_aux.float()) * weights.unsqueeze(-1))
+    return loss1 * 2 + loss2
 
 def train(args):
     print('start training...')
@@ -76,11 +76,11 @@ def train(args):
     best_f2 = 999.
     best_key = 'roc'
 
-    print('epoch |    lr     |       %        |  loss  |  avg   |  loss  |  acc  |   roc  |  best  | time |  save |')
+    print('epoch |    lr     |       %        |  loss  |  avg   |  loss  |  acc   |   roc  |  best  | time |  save |')
 
     if not args.no_first_val:
         val_metrics = validate(args, model, val_loader)
-        print('val   |           |                |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} |        |        |'.format(
+        print('val   |           |                |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} |       |        |'.format(
             val_metrics['valid_loss'], val_metrics['acc'], val_metrics['roc'], val_metrics[best_key] ))
 
         best_f2 = val_metrics[best_key]
@@ -106,13 +106,13 @@ def train(args):
         bg = time.time()
         for batch_idx, data in enumerate(train_loader):
             train_iter += 1
-            img, target, target_aux  = data
-            img, target, target_aux = img.cuda(), target.cuda(), target_aux.cuda()
+            img, target, target_aux, weights  = data
+            img, target, target_aux, weights = img.cuda(), target.cuda(), target_aux.cuda(), weights.cuda()
             
             output, output_aux = model(img)
             output = output.squeeze()
             
-            loss = criterion(output, output_aux, target, target_aux)
+            loss = criterion(output, output_aux, target, target_aux, weights)
             #loss_aux = _reduce_loss(criterion(output_aux, target_aux.float()))
 
             batch_size = img.size(0)
@@ -170,13 +170,13 @@ def validate(args, model: nn.Module, valid_loader):
     model.eval()
     all_losses, all_scores, all_targets = [], [], []
     with torch.no_grad():
-        for inputs, targets, aux_targets in valid_loader:
+        for inputs, targets, aux_targets, weights in valid_loader:
             all_targets.append(targets)
             #if use_cuda:
-            inputs, targets, aux_targets = inputs.cuda(), targets.cuda(), aux_targets.cuda()
+            inputs, targets, aux_targets, weights = inputs.cuda(), targets.cuda(), aux_targets.cuda(), weights.cuda()
             outputs, aux_outputs = model(inputs)
             outputs = outputs.squeeze()
-            loss = criterion(outputs, aux_outputs, targets, aux_targets)
+            loss = criterion(outputs, aux_outputs, targets, aux_targets, weights)
             all_losses.append(loss.item())
             #all_losses.append(loss.item())
             scores = torch.sigmoid(outputs)

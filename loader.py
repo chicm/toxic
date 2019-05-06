@@ -46,14 +46,14 @@ class ToxicDataset(data.Dataset):
         return torch.tensor(token_ids[:MAX_LEN])
 
     def get_label(self, row):
-        return int(row.target>0.5), torch.tensor((row[aux_columns].values > 0.5).astype(np.int16))
+        return int(row.target >= 0.5), torch.tensor((row[aux_columns].values >= 0.5).astype(np.int16)), row.weights
 
     def __getitem__(self, index):
         row = self.df.iloc[index]
         token_ids = self.get_token_ids(row.comment_text) 
         if self.labeled:
             labels = self.get_label(row)
-            return token_ids, labels[0], labels[1]
+            return token_ids, labels[0], labels[1], labels[2]
         else:
             return token_ids
 
@@ -65,15 +65,31 @@ class ToxicDataset(data.Dataset):
             token_ids = torch.stack([x[0] for x in batch])
             labels = torch.tensor([x[1] for x in batch])
             aux_labels = torch.stack([x[2] for x in batch])
-            return token_ids, labels, aux_labels
+            weights = torch.tensor([x[3] for x in batch])
+            return token_ids, labels, aux_labels, weights
         else:
             return torch.stack(batch)
+
+def add_loss_weight(df):
+    # Overall
+    weights = np.ones((len(df),)) / 4
+    # Subgroup
+    weights += (df[identity_columns].fillna(0).values>=0.5).sum(axis=1).astype(bool).astype(np.int) / 4
+    # Background Positive, Subgroup Negative
+    weights += (( (df['target'].values>=0.5).astype(bool).astype(np.int) +
+       (df[identity_columns].fillna(0).values<0.5).sum(axis=1).astype(bool).astype(np.int) ) > 1 ).astype(bool).astype(np.int) / 4
+    # Background Negative, Subgroup Positive
+    weights += (( (df['target'].values<0.5).astype(bool).astype(np.int) +
+       (df[identity_columns].fillna(0).values>=0.5).sum(axis=1).astype(bool).astype(np.int) ) > 1 ).astype(bool).astype(np.int) / 4
+    #loss_weight = 1.0 / weights.mean()
+    df['weights'] = weights
 
 def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, val_num=10000):
     df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train.csv')), random_state=1234)
     #print(df.head())
     df.comment_text = preprocess(df.comment_text)
-    #print(df.head())
+    add_loss_weight(df)
+    print(df.head())
     print(df.shape)
 
     split_index = int(len(df) * val_percent)
@@ -104,10 +120,11 @@ def get_test_loader(batch_size):
 
 def test_train_loader():
     loader, _ = get_train_val_loaders(16)
-    for ids, labels, aux_labels in loader:
+    for ids, labels, aux_labels, weights in loader:
         print(ids.shape)
         print(labels)
         print(aux_labels)
+        print(weights)
         break
 
 def test_test_loader():
