@@ -17,6 +17,7 @@ from pytorch_pretrained_bert.optimization import BertAdam
 from torch.nn import DataParallel
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
+from metrics import auc_score
 
 MODEL_DIR = settings.MODEL_DIR
 
@@ -172,13 +173,11 @@ def validate(args, model: nn.Module, valid_loader):
     with torch.no_grad():
         for inputs, targets, aux_targets, weights in valid_loader:
             all_targets.append(targets)
-            #if use_cuda:
             inputs, targets, aux_targets, weights = inputs.cuda(), targets.cuda(), aux_targets.cuda(), weights.cuda()
             outputs, aux_outputs = model(inputs)
             outputs = outputs.squeeze()
             loss = criterion(outputs, aux_outputs, targets, aux_targets, weights)
             all_losses.append(loss.item())
-            #all_losses.append(loss.item())
             scores = torch.sigmoid(outputs)
             all_scores.append(scores.cpu())
 
@@ -192,6 +191,9 @@ def validate(args, model: nn.Module, valid_loader):
     acc = (all_preds == all_targets.byte()).sum().item() / len(all_targets)
 
     roc_score = roc_auc_score(all_targets.numpy().astype(np.int32), all_scores.numpy())
+
+    #score2 = auc_score(all_scores.numpy(), valid_loader.df)
+    #print('score2:', score2)
 
     metrics = {}
     metrics['valid_loss'] = np.mean(all_losses)
@@ -213,7 +215,7 @@ def pred_model_output(model, loader, labeled=True):
             else:
                 img = batch.cuda()
             #print('img:', img.size())
-            output = model(img).squeeze()
+            output = model(img)[0].squeeze()
             #print(output.size())
             outputs.append(torch.sigmoid(output).cpu())
             #outputs.append(torch.softmax(output, 1).cpu())

@@ -39,7 +39,7 @@ class ToxicDataset(data.Dataset):
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
     def get_token_ids(self, text):
-        tokens = self.tokenizer.tokenize('[CLS]' + text + '[SEP]')[:MAX_LEN]
+        tokens = self.tokenizer.tokenize('[CLS] ' + str(text) + ' [SEP]')[:MAX_LEN]
         token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
         if len(token_ids) < MAX_LEN:
             token_ids += [0] * (MAX_LEN - len(token_ids))
@@ -85,9 +85,9 @@ def add_loss_weight(df):
     df['weights'] = weights
 
 def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, val_num=10000):
-    df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train.csv')), random_state=1234)
+    df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train_clean.csv')), random_state=1234)
     #print(df.head())
-    df.comment_text = preprocess(df.comment_text)
+    #df.comment_text = preprocess(df.comment_text)
     add_loss_weight(df)
     print(df.head())
     print(df.shape)
@@ -107,11 +107,13 @@ def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, v
     ds_val = ToxicDataset(df_val)
     val_loader = data.DataLoader(ds_val, batch_size=val_batch_size, shuffle=False, num_workers=4, collate_fn=ds_val.collate_fn, drop_last=False)
     val_loader.num = len(df_val)
+    val_loader.df = df_val
 
     return train_loader, val_loader
 
 def get_test_loader(batch_size):
-    df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test.csv'))
+    df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test_clean.csv'))
+    #df.comment_text = preprocess(df.comment_text)
     ds_test = ToxicDataset(df, train_mode=False, labeled=False)
     loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=ds_test.collate_fn, drop_last=False)
     loader.num = len(df)
