@@ -14,12 +14,19 @@ class ToxicModel(nn.Module):
         self.name = 'ToxicModel'
         self.bert_model = BertModel.from_pretrained('bert-base-uncased')
         self.fc = nn.Linear(768, 1)
+        self.fc_aux = nn.Linear(768, 5)
     
     def forward(self, x):
         _, pooled_out = self.bert_model(x)
+        out = F.dropout(pooled_out, p=0.2, training=self.training)
         
-        return self.fc(pooled_out)
+        return self.fc(out), self.fc_aux(out)
 
+    def freeze(self):
+        for param in self.bert_model.parameters():
+            param.requires_grad = False
+        #for param in self.fc.parameters():
+        #    param.requires_grad = False
 
 def create_model(args):
     model = ToxicModel()
@@ -47,11 +54,18 @@ def create_model(args):
 
     return model, model_file
 
+def convert_model():
+    model = ToxicModel()
+    model.load_state_dict(torch.load('/mnt/chicm/data/toxic/models/ToxicModel/best_model.pth_latest'), strict=False)
+    torch.save(model.state_dict(), '/mnt/chicm/data/toxic/models/ToxicModel/best_model_new.pth')
 
-
-if __name__ == '__main__':
+def test_forward():
     x = torch.tensor([[1,2,3,4,5]]).cuda()
     model = ToxicModel().cuda()
 
     y = model(x)
     print(y)
+
+
+if __name__ == '__main__':
+    convert_model()

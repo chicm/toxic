@@ -9,13 +9,19 @@ from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
 
 import settings
 
-MAX_LEN = 160
+MAX_LEN = 200
+aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
+identity_columns = [
+    'male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
+    'muslim', 'black', 'white', 'psychiatric_or_mental_illness'
+]
 
 def preprocess(data):
     '''
     Credit goes to https://www.kaggle.com/gpreda/jigsaw-fast-compact-solution
     '''
     punct = "/-'?!.,#$%\'()*+-/:;<=>@[\\]^_`{|}~`" + '""“”’' + '∞θ÷α•à−β∅³π‘₹´°£€\×™√²—–&'
+    #CHARS_TO_REMOVE = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
     def clean_special_chars(text, punct):
         for p in punct:
             text = text.replace(p, ' ')
@@ -33,20 +39,21 @@ class ToxicDataset(data.Dataset):
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
     def get_token_ids(self, text):
-        tokens = self.tokenizer.tokenize('[CLS]' + text + '[SEP]')
+        tokens = self.tokenizer.tokenize('[CLS]' + text + '[SEP]')[:MAX_LEN]
         token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
         if len(token_ids) < MAX_LEN:
             token_ids += [0] * (MAX_LEN - len(token_ids))
         return torch.tensor(token_ids[:MAX_LEN])
 
-    def get_label(self, target):
-        return int(target>0.5)
+    def get_label(self, row):
+        return int(row.target>0.5), torch.tensor((row[aux_columns].values > 0.5).astype(np.int16))
 
     def __getitem__(self, index):
         row = self.df.iloc[index]
         token_ids = self.get_token_ids(row.comment_text) 
         if self.labeled:
-            return token_ids, self.get_label(row.target)
+            labels = self.get_label(row)
+            return token_ids, labels[0], labels[1]
         else:
             return token_ids
 
@@ -57,7 +64,8 @@ class ToxicDataset(data.Dataset):
         if self.labeled:
             token_ids = torch.stack([x[0] for x in batch])
             labels = torch.tensor([x[1] for x in batch])
-            return token_ids, labels
+            aux_labels = torch.stack([x[2] for x in batch])
+            return token_ids, labels, aux_labels
         else:
             return torch.stack(batch)
 
@@ -86,12 +94,30 @@ def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, v
 
     return train_loader, val_loader
 
-def get_test_loader():
-    pass
+def get_test_loader(batch_size):
+    df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test.csv'))
+    ds_test = ToxicDataset(df, train_mode=False, labeled=False)
+    loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=ds_test.collate_fn, drop_last=False)
+    loader.num = len(df)
 
-if __name__ == '__main__':
-    loader, _ = get_train_val_loaders(4)
-    for ids, labels in loader:
+    return loader
+
+def test_train_loader():
+    loader, _ = get_train_val_loaders(16)
+    for ids, labels, aux_labels in loader:
         print(ids.shape)
         print(labels)
+        print(aux_labels)
         break
+
+def test_test_loader():
+    loader = get_test_loader(4)
+    for ids in loader:
+        print(ids.shape)
+        print(ids)
+        #print(labels)
+        break
+
+if __name__ == '__main__':
+    test_train_loader()
+    #test_test_loader()
