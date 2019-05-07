@@ -28,9 +28,9 @@ def _reduce_loss(loss):
     return loss.sum() / loss.shape[0]
 
 def criterion(output, output_aux, target, target_aux, weights):
-    loss1 = _reduce_loss(c(output, target.float()) * weights)
-    loss2 = _reduce_loss(c(output_aux, target_aux.float()) * weights.unsqueeze(-1))
-    return loss1 * 2 + loss2
+    loss1 = _reduce_loss(c(output, target.float())) #* weights)
+    loss2 = _reduce_loss(c(output_aux, target_aux.float())) # * weights.unsqueeze(-1))
+    return loss1 * 5 + loss2
 
 def train(args):
     print('start training...')
@@ -190,9 +190,8 @@ def validate(args, model: nn.Module, valid_loader):
 
     acc = (all_preds == all_targets.byte()).sum().item() / len(all_targets)
 
-    roc_score = roc_auc_score(all_targets.numpy().astype(np.int32), all_scores.numpy())
-
-    #score2 = auc_score(all_scores.numpy(), valid_loader.df)
+    #roc_score = roc_auc_score(all_targets.numpy().astype(np.int32), all_scores.numpy())
+    roc_score = auc_score(all_scores.numpy(), valid_loader.df)
     #print('score2:', score2)
 
     metrics = {}
@@ -253,7 +252,7 @@ if __name__ == '__main__':
     parser.add_argument('--val_batch_size', default=1024, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--iter_val', default=200, type=int, help='start epoch')
-    parser.add_argument('--num_epochs', default=10, type=int, help='epoch')
+    parser.add_argument('--num_epochs', default=3, type=int, help='epoch')
     parser.add_argument('--optim_name', default='BertAdam', choices=['SGD', 'Adam', 'BertAdam'], help='optimizer')
     parser.add_argument("--warmup", type=float, default=0.01)
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')

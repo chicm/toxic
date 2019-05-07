@@ -6,6 +6,7 @@ import torch.utils.data as data
 from torchvision import datasets, models, transforms
 from sklearn.utils import shuffle
 from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
+#from preprocess import preprocess_text
 
 import settings
 
@@ -30,6 +31,7 @@ def preprocess(data):
     data = data.astype(str).apply(lambda x: clean_special_chars(x, punct))
     return data
 
+
 class ToxicDataset(data.Dataset):
     def __init__(self, df,  train_mode=True, labeled=True):
         super(ToxicDataset, self).__init__()
@@ -39,7 +41,7 @@ class ToxicDataset(data.Dataset):
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
     def get_token_ids(self, text):
-        tokens = self.tokenizer.tokenize('[CLS] ' + str(text) + ' [SEP]')[:MAX_LEN]
+        tokens = ['[CLS]'] + self.tokenizer.tokenize(str(text))[:MAX_LEN-2] + ['[SEP]']
         token_ids = self.tokenizer.convert_tokens_to_ids(tokens)
         if len(token_ids) < MAX_LEN:
             token_ids += [0] * (MAX_LEN - len(token_ids))
@@ -85,9 +87,10 @@ def add_loss_weight(df):
     df['weights'] = weights
 
 def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, val_num=10000):
-    df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train_clean.csv')), random_state=1234)
+    #df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train_clean.csv')), random_state=1234)
+    df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train.csv')), random_state=1234)
     #print(df.head())
-    #df.comment_text = preprocess(df.comment_text)
+    df.comment_text = preprocess(df.comment_text)
     add_loss_weight(df)
     print(df.head())
     print(df.shape)
@@ -112,8 +115,11 @@ def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, v
     return train_loader, val_loader
 
 def get_test_loader(batch_size):
-    df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test_clean.csv'))
-    #df.comment_text = preprocess(df.comment_text)
+    #df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test_clean.csv'))
+    df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test.csv'))
+    #print(df.head())
+    df.comment_text = preprocess(df.comment_text)
+    #print(df.head())
     ds_test = ToxicDataset(df, train_mode=False, labeled=False)
     loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=ds_test.collate_fn, drop_last=False)
     loader.num = len(df)
@@ -121,9 +127,9 @@ def get_test_loader(batch_size):
     return loader
 
 def test_train_loader():
-    loader, _ = get_train_val_loaders(16)
+    loader, _ = get_train_val_loaders(4)
     for ids, labels, aux_labels, weights in loader:
-        print(ids.shape)
+        print(ids)
         print(labels)
         print(aux_labels)
         print(weights)

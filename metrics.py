@@ -36,6 +36,7 @@ class JigsawEvaluator:
             records[0, i] = self._compute_subgroup_auc(i, y_pred)
             records[1, i] = self._compute_bpsn_auc(i, y_pred)
             records[2, i] = self._compute_bnsp_auc(i, y_pred)
+        #print(records)
         return records
 
     def _calculate_overall_auc(self, y_pred):

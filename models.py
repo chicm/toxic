@@ -17,8 +17,10 @@ class ToxicModel(nn.Module):
         self.fc_aux = nn.Linear(768, 5)
     
     def forward(self, x):
-        _, pooled_out = self.bert_model(x)
-        out = F.dropout(pooled_out, p=0.2, training=self.training)
+        attention_mask = (x != 0)
+        #print(attention_mask)
+        layers, pooled_out = self.bert_model(x, attention_mask=attention_mask, output_all_encoded_layers=True)
+        out = F.dropout(layers[-1][:, 0, :], p=0.2, training=self.training)
         
         return self.fc(out), self.fc_aux(out)
 
@@ -60,7 +62,7 @@ def convert_model():
     torch.save(model.state_dict(), '/mnt/chicm/data/toxic/models/ToxicModel/best_model_new.pth')
 
 def test_forward():
-    x = torch.tensor([[1,2,3,4,5]]).cuda()
+    x = torch.tensor([[1,2,3,4,5, 0, 0]]).cuda()
     model = ToxicModel().cuda()
 
     y = model(x)
@@ -68,4 +70,5 @@ def test_forward():
 
 
 if __name__ == '__main__':
-    convert_model()
+    #convert_model()
+    test_forward()
