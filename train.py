@@ -21,16 +21,31 @@ from metrics import auc_score
 
 MODEL_DIR = settings.MODEL_DIR
 
+class FocalLoss(nn.Module):
+    def forward(self, x, y):
+        alpha = 0.25
+        gamma = 2
+
+        p = x.sigmoid()
+        pt = p*y + (1-p)*(1-y)       # pt = p if t > 0 else 1-p
+        w = alpha*y + (1-alpha)*(1-y)  # w = alpha if t > 0 else 1-alpha
+        w = w * (1-pt).pow(gamma)
+        w = w.detach()
+        #w.requires_grad = False
+        #return F.binary_cross_entropy_with_logits(x, t, w, size_average=False)
+        return F.binary_cross_entropy_with_logits(x, y, w, reduction='none')
+
 c = nn.BCEWithLogitsLoss(reduction='none')
+f_c = FocalLoss()
 
 def _reduce_loss(loss):
     #print('loss shape:', loss.shape)
     return loss.sum() / loss.shape[0]
 
 def criterion(output, output_aux, target, target_aux, weights):
-    loss1 = _reduce_loss(c(output, target.float()) * weights)
-    loss2 = _reduce_loss(c(output_aux, target_aux.float()) * weights.unsqueeze(-1))
-    return loss1 * 2 + loss2
+    loss1 = _reduce_loss(c(output, target.float())) # * weights)
+    loss2 = _reduce_loss(c(output_aux, target_aux.float()))# * weights.unsqueeze(-1))
+    return loss1 * 5 + loss2
 
 def train(args):
     print('start training...')
@@ -256,12 +271,13 @@ def mean_df(args):
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Landmark detection')
+    parser.add_argument('--run_name', default='', type=str, help='learning rate')
     parser.add_argument('--lr', default=2e-5, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=1e-6, type=float, help='min learning rate')
     parser.add_argument('--batch_size', default=160, type=int, help='batch_size')
     parser.add_argument('--val_batch_size', default=1024, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--iter_val', default=200, type=int, help='start epoch')
+    parser.add_argument('--iter_val', default=400, type=int, help='start epoch')
     parser.add_argument('--num_epochs', default=10, type=int, help='epoch')
     parser.add_argument('--optim_name', default='BertAdam', choices=['SGD', 'Adam', 'BertAdam'], help='optimizer')
     parser.add_argument("--warmup", type=float, default=0.01)
@@ -278,7 +294,7 @@ if __name__ == '__main__':
     parser.add_argument('--predict', action='store_true')
     parser.add_argument('--no_first_val', action='store_true')
     parser.add_argument('--always_save',action='store_true', help='alway save')
-    parser.add_argument('--val_num', default=10000, type=int, help='number of val data')
+    parser.add_argument('--val_num', default=30000, type=int, help='number of val data')
     #parser.add_argument('--img_sz', default=256, type=int, help='image size')
     
     args = parser.parse_args()

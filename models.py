@@ -9,9 +9,9 @@ from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
 import settings
 
 class ToxicModel(nn.Module):
-    def __init__(self):
+    def __init__(self, name='ToxicModel'):
         super(ToxicModel, self).__init__()
-        self.name = 'ToxicModel'
+        self.name = name
         self.bert_model = BertModel.from_pretrained('bert-base-uncased')
         self.fc = nn.Linear(768, 1)
         self.fc_aux = nn.Linear(768, 5)
@@ -31,12 +31,16 @@ class ToxicModel(nn.Module):
         #    param.requires_grad = False
 
 def create_model(args):
-    model = ToxicModel()
+    model = ToxicModel('ToxicModel'+args.run_name)
     model_file = os.path.join(settings.MODEL_DIR, model.name, args.ckp_name)
 
     parent_dir = os.path.dirname(model_file)
     if not os.path.exists(parent_dir):
         os.makedirs(parent_dir)
+
+    if args.init_ckp and os.path.exists(args.init_ckp):
+        print('loading {}...'.format(args.init_ckp))
+        model.load_state_dict(torch.load(args.init_ckp))
 
     print('model file: {}, exist: {}'.format(model_file, os.path.exists(model_file)))
 

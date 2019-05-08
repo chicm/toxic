@@ -29,7 +29,7 @@ def load_preprocessing_data():
         #**mapping_dict['contraction_mapping'],
         **mapping_dict['mispell_dict'],
         #**mapping_dict['special_punc_mappings'],
-        #**mapping_dict['rare_words_mapping'],
+        **mapping_dict['rare_words_mapping'],
         #**mapping_dict['bad_case_words'],
         **mapping_dict['mis_spell_mapping']
     }
@@ -53,8 +53,8 @@ def _preprocess(text):
     punct = "/-'?!.,#$%\'()*+-/:;<=>@[\\]^_`{|}~`" + '""“”’' + '∞θ÷α•à−β∅³π‘₹´°£€\×™√²—–&'
     #CHARS_TO_REMOVE = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
 
-    #result = replace_words(text, mapping_dict['words_to_replace'])
-    result = clean_special_chars(text, punct)
+    result = replace_words(text, mapping_dict['words_to_replace'])
+    result = clean_special_chars(result, punct)
 
     return result
 
@@ -67,3 +67,12 @@ def preprocess_text(data):
     data = data.astype(str).apply(lambda x: _preprocess(x))
 
     return data
+
+if __name__ == '__main__':
+    import pandas as pd
+    import os
+    import settings
+    df = pd.read_csv(os.path.join(settings.DATA_DIR, 'train.csv'))
+    df['counts'] = df.comment_text.map(lambda x: sum([ 1 if k in x else 0 for k in mapping_dict['words_to_replace']]))
+    total = df.counts.values.sum()
+    print('total occur:', total)
