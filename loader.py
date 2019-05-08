@@ -6,7 +6,7 @@ import torch.utils.data as data
 from torchvision import datasets, models, transforms
 from sklearn.utils import shuffle
 from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
-#from preprocess import preprocess_text
+from preprocess import preprocess_text
 
 import settings
 
@@ -16,11 +16,11 @@ identity_columns = [
     'male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
     'muslim', 'black', 'white', 'psychiatric_or_mental_illness'
 ]
-
+'''
 def preprocess(data):
-    '''
-    Credit goes to https://www.kaggle.com/gpreda/jigsaw-fast-compact-solution
-    '''
+    
+    #Credit goes to https://www.kaggle.com/gpreda/jigsaw-fast-compact-solution
+    
     punct = "/-'?!.,#$%\'()*+-/:;<=>@[\\]^_`{|}~`" + '""“”’' + '∞θ÷α•à−β∅³π‘₹´°£€\×™√²—–&'
     #CHARS_TO_REMOVE = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n“”’\'∞θ÷α•à−β∅³π‘₹´°£€\×™√²—'
     def clean_special_chars(text, punct):
@@ -30,7 +30,7 @@ def preprocess(data):
 
     data = data.astype(str).apply(lambda x: clean_special_chars(x, punct))
     return data
-
+'''
 
 class ToxicDataset(data.Dataset):
     def __init__(self, df,  train_mode=True, labeled=True):
@@ -90,18 +90,21 @@ def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, v
     #df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train_clean.csv')), random_state=1234)
     df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train.csv')), random_state=1234)
     #print(df.head())
-    df.comment_text = preprocess(df.comment_text)
+    df.comment_text = preprocess_text(df.comment_text)
     add_loss_weight(df)
-    print(df.head())
+    
     print(df.shape)
 
     split_index = int(len(df) * val_percent)
 
     df_train = df[:split_index]
-    df_val = df[:split_index:]
+    df_val = df[split_index:]
 
     if val_num is not None:
         df_val = df_val[:val_num]
+    
+    print(df_train.head())
+    print(df_val.head())
 
     ds_train = ToxicDataset(df_train)
     train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=ds_train.collate_fn, drop_last=True)
@@ -118,7 +121,7 @@ def get_test_loader(batch_size):
     #df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test_clean.csv'))
     df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test.csv'))
     #print(df.head())
-    df.comment_text = preprocess(df.comment_text)
+    df.comment_text = preprocess_text(df.comment_text)
     #print(df.head())
     ds_test = ToxicDataset(df, train_mode=False, labeled=False)
     loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=ds_test.collate_fn, drop_last=False)

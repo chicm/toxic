@@ -1,4 +1,5 @@
 import numpy as np
+import warnings
 from sklearn.metrics import roc_auc_score
 
 
@@ -6,7 +7,10 @@ class JigsawEvaluator:
 
     def __init__(self, y_true, y_identity, power=-5, overall_model_weight=0.25):
         self.y = (y_true >= 0.5).astype(np.int32)
-        self.y_i = (y_identity >= 0.5).astype(np.int32)
+        #print(y_identity.dtype)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=RuntimeWarning)
+            self.y_i = (y_identity >= 0.5).astype(np.int32)
         self.n_subgroups = self.y_i.shape[1]
         self.power = power
         self.overall_model_weight = overall_model_weight

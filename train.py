@@ -28,9 +28,9 @@ def _reduce_loss(loss):
     return loss.sum() / loss.shape[0]
 
 def criterion(output, output_aux, target, target_aux, weights):
-    loss1 = _reduce_loss(c(output, target.float())) #* weights)
-    loss2 = _reduce_loss(c(output_aux, target_aux.float())) # * weights.unsqueeze(-1))
-    return loss1 * 5 + loss2
+    loss1 = _reduce_loss(c(output, target.float()) * weights)
+    loss2 = _reduce_loss(c(output_aux, target_aux.float()) * weights.unsqueeze(-1))
+    return loss1 * 2 + loss2
 
 def train(args):
     print('start training...')
@@ -77,12 +77,12 @@ def train(args):
     best_f2 = 999.
     best_key = 'roc'
 
-    print('epoch |    lr     |       %        |  loss  |  avg   |  loss  |  acc   |   roc  |  best  | time |  save |')
+    print('epoch |    lr     |       %        |  loss  |  avg   |  loss  |  acc   |  prec  | recall |   roc  |  best  | time |  save |')
 
     if not args.no_first_val:
         val_metrics = validate(args, model, val_loader)
-        print('val   |           |                |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} |       |        |'.format(
-            val_metrics['valid_loss'], val_metrics['acc'], val_metrics['roc'], val_metrics[best_key] ))
+        print('val   |           |                |        |        | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} |       |        |'.format(
+            val_metrics['valid_loss'], val_metrics['acc'], val_metrics['precision'], val_metrics['recall'], val_metrics['roc'], val_metrics[best_key] ))
 
         best_f2 = val_metrics[best_key]
 
@@ -142,8 +142,8 @@ def train(args):
                     else:
                         torch.save(model.state_dict(), model_file)
                     _save_ckp = '*'
-                print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} |  {:4s} |'.format(
-                    val_metrics['valid_loss'], val_metrics['acc'], val_metrics['roc'], best_f2,
+                print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} |  {:4s} |'.format(
+                    val_metrics['valid_loss'], val_metrics['acc'], val_metrics['precision'], val_metrics['recall'], val_metrics['roc'], best_f2,
                     (time.time() - bg) / 60, _save_ckp))
 
                 model.train()
@@ -181,23 +181,23 @@ def validate(args, model: nn.Module, valid_loader):
             scores = torch.sigmoid(outputs)
             all_scores.append(scores.cpu())
 
-    all_scores = torch.cat(all_scores, 0)
-    all_preds = (all_scores > 0.5)
-    all_targets = torch.cat(all_targets)
+    all_scores = torch.cat(all_scores, 0).numpy()
+    all_preds = (all_scores > 0.5).astype(np.int16)
+    all_targets = torch.cat(all_targets).numpy().astype(np.int16)
 
     #print(all_targets)
     #print(all_preds)
-
-    acc = (all_preds == all_targets.byte()).sum().item() / len(all_targets)
-
-    #roc_score = roc_auc_score(all_targets.numpy().astype(np.int32), all_scores.numpy())
-    roc_score = auc_score(all_scores.numpy(), valid_loader.df)
-    #print('score2:', score2)
-
     metrics = {}
     metrics['valid_loss'] = np.mean(all_losses)
-    metrics['acc'] = acc
-    metrics['roc'] = roc_score
+
+    tp = ((all_preds == all_targets).astype(np.int16) * all_targets).sum()
+    metrics['precision'] = tp / (all_preds.sum() + 1e-6)
+    metrics['recall'] = tp / (all_targets.sum() + 1e-6)
+    metrics['acc'] = (all_preds == all_targets).sum() / len(all_targets)
+    metrics['true'] = all_targets.sum()
+
+    #roc_score = roc_auc_score(all_targets.numpy().astype(np.int32), all_scores.numpy())
+    metrics['roc'] = auc_score(all_scores, valid_loader.df)
     #print(metrics)
     return metrics
 
@@ -243,6 +243,16 @@ def create_submission(args, scores):
 
     df.to_csv(args.sub_file, header=True, index=False, columns=['id', 'prediction'])
 
+def mean_df(args):
+    df_files = args.mean_df.split(',')
+    print(df_files)
+    dfs = []
+    for fn in df_files:
+        dfs.append(pd.read_csv(fn))
+    mean_pred = np.mean([dfi.prediction.values for dfi in dfs], 0).astype(np.float32)
+    dfs[0].prediction = mean_pred
+    dfs[0].to_csv(args.sub_file, index=False, header=True)
+
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Landmark detection')
@@ -252,7 +262,7 @@ if __name__ == '__main__':
     parser.add_argument('--val_batch_size', default=1024, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--iter_val', default=200, type=int, help='start epoch')
-    parser.add_argument('--num_epochs', default=3, type=int, help='epoch')
+    parser.add_argument('--num_epochs', default=10, type=int, help='epoch')
     parser.add_argument('--optim_name', default='BertAdam', choices=['SGD', 'Adam', 'BertAdam'], help='optimizer')
     parser.add_argument("--warmup", type=float, default=0.01)
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
@@ -264,6 +274,7 @@ if __name__ == '__main__':
     parser.add_argument('--dev_mode', action='store_true')
     parser.add_argument('--ckp_name', type=str, default='best_model.pth',help='check point file name')
     parser.add_argument('--sub_file', type=str, default='sub1.csv')
+    parser.add_argument('--mean_df', type=str, default=None)
     parser.add_argument('--predict', action='store_true')
     parser.add_argument('--no_first_val', action='store_true')
     parser.add_argument('--always_save',action='store_true', help='alway save')
@@ -275,7 +286,9 @@ if __name__ == '__main__':
     #test_model(args)
     #exit(1)
 
-    if args.predict:
+    if args.mean_df:
+        mean_df(args)
+    elif args.predict:
         predict(args)
     else:
         train(args)
