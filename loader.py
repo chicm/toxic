@@ -118,11 +118,11 @@ def get_train_val_loaders(batch_size, bert_model, ifold=19, clean_text=False, va
     print(df_val.head())
 
     ds_train = ToxicDataset(df_train, tokenizer)
-    train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=ds_train.collate_fn, drop_last=True)
+    train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=8, collate_fn=ds_train.collate_fn, drop_last=True)
     train_loader.num = len(df_train)
 
     ds_val = ToxicDataset(df_val, tokenizer)
-    val_loader = data.DataLoader(ds_val, batch_size=val_batch_size, shuffle=False, num_workers=4, collate_fn=ds_val.collate_fn, drop_last=False)
+    val_loader = data.DataLoader(ds_val, batch_size=val_batch_size, shuffle=False, num_workers=8, collate_fn=ds_val.collate_fn, drop_last=False)
     val_loader.num = len(df_val)
     val_loader.df = df_val
 
@@ -136,7 +136,7 @@ def get_test_loader(batch_size, bert_model, clean_text=False):
     #df.comment_text = preprocess_text(df.comment_text)
     #print(df.head())
     ds_test = ToxicDataset(df, tokenizer, train_mode=False, labeled=False)
-    loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=ds_test.collate_fn, drop_last=False)
+    loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=8, collate_fn=ds_test.collate_fn, drop_last=False)
     loader.num = len(df)
 
     return loader

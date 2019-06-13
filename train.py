@@ -24,7 +24,15 @@ from apex import amp
 MODEL_DIR = settings.MODEL_DIR
 
 def create_model(args):
-    model = BertForSequenceClassification.from_pretrained(args.bert_model, cache_dir=None, num_labels=6)
+    if args.use_path:
+        if 'large' in args.bert_model:
+            sub_dir = 'large'
+        else:
+            sub_dir = 'base'
+        model = BertForSequenceClassification.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, sub_dir),cache_dir=None,num_labels=6)
+    else:
+        model = BertForSequenceClassification.from_pretrained(args.bert_model, cache_dir=None, num_labels=6)
+    
     model_file = os.path.join(settings.MODEL_DIR, '{}_{}_{}'.format(args.bert_model, args.run_name, args.ifold), args.ckp_name)
 
     parent_dir = os.path.dirname(model_file)
@@ -249,8 +257,8 @@ def pred_model_output(model, loader):
     return outputs
 
 def predict(args):
-    #model, _ = create_model(args)
-    model = create_model(args)
+    model, _ = create_model(args)
+    #model = create_model(args)
     if torch.cuda.device_count() > 1:
         model = DataParallel(model)
 
@@ -303,6 +311,7 @@ if __name__ == '__main__':
     parser.add_argument('--sub_file', type=str, default='sub1.csv')
     parser.add_argument('--mean_df', type=str, default=None)
     parser.add_argument('--predict', action='store_true')
+    parser.add_argument('--use_path', action='store_true')
     parser.add_argument('--no_first_val', action='store_true')
     parser.add_argument('--clean_text', action='store_true')
     parser.add_argument('--ifold', default=0, type=int, help='lr scheduler patience')

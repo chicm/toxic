@@ -66,9 +66,25 @@ def convert_model():
     torch.save(model.state_dict(), '/mnt/chicm/data/toxic/models/ToxicModel/best_model_new.pth')
 
 def test_forward():
-    x = torch.tensor([[1,2,3,4,5, 0, 0]]).cuda()
-    model = ToxicModel().cuda()
+    import settings
+    from apex import amp
+    from pytorch_pretrained_bert import BertForSequenceClassification, BertAdam
+    x = torch.tensor([[1,2,3,4,5, 0, 0]]*8).cuda()
+    #model = ToxicModel().cuda()
+    model = BertForSequenceClassification.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, 'base'),cache_dir=None,num_labels=6).cuda()
+    param_optimizer = list(model.named_parameters())
+    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+    optimizer_grouped_parameters = [
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    ]
 
+    optimizer = BertAdam(optimizer_grouped_parameters, lr=0.0001, warmup=0.1, t_total=100000)
+
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
+    model = DataParallel(model)
+    model.train()
+    print(x)
     y = model(x)
     print(y)
 
