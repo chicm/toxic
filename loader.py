@@ -5,12 +5,13 @@ import torch
 import torch.utils.data as data
 from torchvision import datasets, models, transforms
 from sklearn.utils import shuffle
+from sklearn.model_selection import KFold
 from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
 from preprocess import preprocess_text
 
 import settings
 
-MAX_LEN = 200
+MAX_LEN = 220
 aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
 identity_columns = [
     'male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
@@ -33,12 +34,12 @@ def preprocess(data):
 '''
 
 class ToxicDataset(data.Dataset):
-    def __init__(self, df,  train_mode=True, labeled=True):
+    def __init__(self, df, tokenizer, train_mode=True, labeled=True):
         super(ToxicDataset, self).__init__()
         self.df = df
         self.train_mode = train_mode
         self.labeled = labeled
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.tokenizer = tokenizer
 
     def get_token_ids(self, text):
         tokens = ['[CLS]'] + self.tokenizer.tokenize(str(text))[:MAX_LEN-2] + ['[SEP]']
@@ -86,19 +87,29 @@ def add_loss_weight(df):
     #loss_weight = 1.0 / weights.mean()
     df['weights'] = weights
 
-def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, val_num=10000):
+def get_split_df(df, ifold=19):
+    kf = KFold(n_splits=20)
+
+    for i, (train_index, val_index) in enumerate(kf.split(df)):
+        if i == ifold:
+            break
+    return df.iloc[train_index], df.iloc[val_index]
+
+def get_train_val_loaders(batch_size, bert_model, ifold=19, clean_text=False, val_batch_size=256, val_num=10000):
+    tokenizer = BertTokenizer.from_pretrained(bert_model)
     #df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train_clean.csv')), random_state=1234)
     df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train.csv')), random_state=1234)
     #print(df.head())
-    df.comment_text = preprocess_text(df.comment_text)
+    #df.comment_text = preprocess_text(df.comment_text)
     add_loss_weight(df)
     
     print(df.shape)
 
-    split_index = int(len(df) * val_percent)
+    #split_index = int(len(df) * val_percent)
 
-    df_train = df[:split_index]
-    df_val = df[split_index:]
+    #df_train = df[:split_index]
+    #df_val = df[split_index:]
+    df_train, df_val = get_split_df(df, ifold=ifold)
 
     if val_num is not None:
         df_val = df_val[:val_num]
@@ -106,33 +117,34 @@ def get_train_val_loaders(batch_size=64, val_batch_size=256, val_percent=0.95, v
     print(df_train.head())
     print(df_val.head())
 
-    ds_train = ToxicDataset(df_train)
+    ds_train = ToxicDataset(df_train, tokenizer)
     train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=ds_train.collate_fn, drop_last=True)
     train_loader.num = len(df_train)
 
-    ds_val = ToxicDataset(df_val)
+    ds_val = ToxicDataset(df_val, tokenizer)
     val_loader = data.DataLoader(ds_val, batch_size=val_batch_size, shuffle=False, num_workers=4, collate_fn=ds_val.collate_fn, drop_last=False)
     val_loader.num = len(df_val)
     val_loader.df = df_val
 
     return train_loader, val_loader
 
-def get_test_loader(batch_size):
+def get_test_loader(batch_size, bert_model, clean_text=False):
+    tokenizer = BertTokenizer.from_pretrained(bert_model)
     #df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test_clean.csv'))
     df = pd.read_csv(os.path.join(settings.DATA_DIR, 'test.csv'))
     #print(df.head())
-    df.comment_text = preprocess_text(df.comment_text)
+    #df.comment_text = preprocess_text(df.comment_text)
     #print(df.head())
-    ds_test = ToxicDataset(df, train_mode=False, labeled=False)
+    ds_test = ToxicDataset(df, tokenizer, train_mode=False, labeled=False)
     loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=ds_test.collate_fn, drop_last=False)
     loader.num = len(df)
 
     return loader
 
 def test_train_loader():
-    loader, _ = get_train_val_loaders(4)
+    loader, _ = get_train_val_loaders(4, 'bert-base-uncased', ifold=0)
     for ids, labels, aux_labels, weights in loader:
-        print(ids)
+        #print(ids)
         print(labels)
         print(aux_labels)
         print(weights)

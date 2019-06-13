@@ -12,14 +12,42 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRScheduler, ReduceLROnPlateau
 import settings
 from loader import get_train_val_loaders, get_test_loader
-from models import ToxicModel, create_model
-from pytorch_pretrained_bert.optimization import BertAdam
+#from pytorch_pretrained_bert.optimization import BertAdam
+from pytorch_pretrained_bert import BertTokenizer, BertForSequenceClassification,BertAdam
 from torch.nn import DataParallel
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 from metrics import auc_score
+from torch.nn import DataParallel
+from apex import amp
 
 MODEL_DIR = settings.MODEL_DIR
+
+def create_model(args):
+    model = BertForSequenceClassification.from_pretrained(args.bert_model, cache_dir=None, num_labels=6)
+    model_file = os.path.join(settings.MODEL_DIR, '{}_{}_{}'.format(args.bert_model, args.run_name, args.ifold), args.ckp_name)
+
+    parent_dir = os.path.dirname(model_file)
+    if not os.path.exists(parent_dir):
+        os.makedirs(parent_dir)
+
+    if args.init_ckp and os.path.exists(args.init_ckp):
+        print('loading {}...'.format(args.init_ckp))
+        model.load_state_dict(torch.load(args.init_ckp))
+
+    print('model file: {}, exist: {}'.format(model_file, os.path.exists(model_file)))
+
+    if args.predict and (not os.path.exists(model_file)):
+        raise AttributeError('model file does not exist: {}'.format(model_file))
+
+    if os.path.exists(model_file):
+        print('loading {}...'.format(model_file))
+        model.load_state_dict(torch.load(model_file))
+
+    model = model.cuda()
+
+    return model, model_file
+
 
 class FocalLoss(nn.Module):
     def forward(self, x, y):
@@ -43,15 +71,15 @@ def _reduce_loss(loss):
     return loss.sum() / loss.shape[0]
 
 def criterion(output, output_aux, target, target_aux, weights):
-    loss1 = _reduce_loss(c(output, target.float())) # * weights)
-    loss2 = _reduce_loss(c(output_aux, target_aux.float()))# * weights.unsqueeze(-1))
+    loss1 = _reduce_loss(c(output, target.float()) * weights)
+    loss2 = _reduce_loss(c(output_aux, target_aux.float()) * weights.unsqueeze(-1))
     return loss1 * 5 + loss2
 
 def train(args):
     print('start training...')
+    #model, model_file = create_model(args)
+
     model, model_file = create_model(args)
-    #model = model.cuda()
-    
 
     # Prepare optimizer
     param_optimizer = list(model.named_parameters())
@@ -61,33 +89,24 @@ def train(args):
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
     
-    train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, val_batch_size=args.val_batch_size, val_num=args.val_num)
-    num_train_optimization_steps = args.num_epochs * train_loader.num // train_loader.batch_size
+    train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, bert_model=args.bert_model, ifold=args.ifold, \
+        clean_text=args.clean_text, val_batch_size=args.val_batch_size, val_num=args.val_num)
 
-    if args.optim_name == 'BertAdam':
-        optimizer = BertAdam(optimizer_grouped_parameters,
-                             lr=args.lr,
-                             warmup=args.warmup,
-                             t_total=num_train_optimization_steps)
-    else:
-        if args.optim_name == 'Adam':
-            optimizer = optim.Adam(optimizer_grouped_parameters, lr=args.lr)
-            lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.6, patience=4, min_lr=1e-6)
-        elif args.optim_name == 'SGD':
-            optimizer = optim.SGD(optimizer_grouped_parameters, lr=args.lr, momentum=0.9) #, weight_decay=1e-4)
-            lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.6, patience=4, min_lr=1e-6)
-        else:
-            raise AssertionError('wrong optimizer name')
+    num_train_optimization_steps = args.num_epochs * train_loader.num // train_loader.batch_size // 4
 
-        if args.lrs == 'plateau':
-            lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=args.factor, patience=args.patience, min_lr=args.min_lr)
-        else:
-            lr_scheduler = CosineAnnealingLR(optimizer, args.t_max, eta_min=args.min_lr)
-        #ExponentialLR(optimizer, 0.9, last_epoch=-1) #CosineAnnealingLR(optimizer, 15, 1e-7) 
+    #if args.optim_name == 'BertAdam':
+    optimizer = BertAdam(
+        optimizer_grouped_parameters,
+        lr=args.lr,
+        warmup=args.warmup,
+        t_total=num_train_optimization_steps)
 
-    #_, val_loader = get_train_val_loaders(batch_size=args.batch_size, val_batch_size=args.val_batch_size, val_num=args.val_num)
+    model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
 
-    #model.module.freeze()
+    if torch.cuda.device_count() > 1:
+        model = DataParallel(model)
+
+    model=model.train()
 
     best_f2 = 999.
     best_key = 'roc'
@@ -104,13 +123,8 @@ def train(args):
     if args.val:
         return
 
-    model.train()
+    #model.train()
 
-    if args.optim_name != 'BertAdam':
-        if args.lrs == 'plateau':
-            lr_scheduler.step(best_f2)
-        else:
-            lr_scheduler.step()
     train_iter = 0
 
     for epoch in range(args.start_epoch, args.num_epochs):
@@ -125,17 +139,22 @@ def train(args):
             img, target, target_aux, weights  = data
             img, target, target_aux, weights = img.cuda(), target.cuda(), target_aux.cuda(), weights.cuda()
             
-            output, output_aux = model(img)
-            output = output.squeeze()
+            output = model(img, attention_mask=(img>0), labels=None)
+            output_cls = output[:, :1].squeeze()
+            output_aux = output[:, 1:]
+            #output = output.squeeze()
             
-            loss = criterion(output, output_aux, target, target_aux, weights)
+            loss = criterion(output_cls, output_aux, target, target_aux, weights)
             #loss_aux = _reduce_loss(criterion(output_aux, target_aux.float()))
-
             batch_size = img.size(0)
-            (batch_size * loss).backward()
 
-            optimizer.step()
-            optimizer.zero_grad()
+            with amp.scale_loss(loss, optimizer) as scaled_loss:
+                scaled_loss.backward()
+
+            #(batch_size * loss).backward()
+            if batch_idx % 4 == 0:
+                optimizer.step()
+                optimizer.zero_grad()
 
             train_loss += loss.item()
             print('\r {:4d} | {:.7f} | {:06d}/{} | {:.4f} | {:.4f} |'.format(
@@ -162,12 +181,6 @@ def train(args):
                     (time.time() - bg) / 60, _save_ckp))
 
                 model.train()
-                
-                if args.optim_name != 'BertAdam':
-                    if args.lrs == 'plateau':
-                        lr_scheduler.step(best_f2)
-                    else:
-                        lr_scheduler.step()
                 current_lr = get_lrs(optimizer)
 
     #del model, optimizer, lr_scheduler
@@ -189,11 +202,16 @@ def validate(args, model: nn.Module, valid_loader):
         for inputs, targets, aux_targets, weights in valid_loader:
             all_targets.append(targets)
             inputs, targets, aux_targets, weights = inputs.cuda(), targets.cuda(), aux_targets.cuda(), weights.cuda()
-            outputs, aux_outputs = model(inputs)
-            outputs = outputs.squeeze()
-            loss = criterion(outputs, aux_outputs, targets, aux_targets, weights)
+            #outputs, aux_outputs = model(inputs)
+            #outputs = outputs.squeeze()
+
+            output = model(inputs, attention_mask=(inputs>0), labels=None)
+            output_cls = output[:, :1].squeeze()
+            output_aux = output[:, 1:]
+
+            loss = criterion(output_cls, output_aux, targets, aux_targets, weights)
             all_losses.append(loss.item())
-            scores = torch.sigmoid(outputs)
+            scores = torch.sigmoid(output_cls)
             all_scores.append(scores.cpu())
 
     all_scores = torch.cat(all_scores, 0).numpy()
@@ -217,35 +235,27 @@ def validate(args, model: nn.Module, valid_loader):
     return metrics
 
 
-def pred_model_output(model, loader, labeled=True):
+def pred_model_output(model, loader):
     model.eval()
     outputs = []
     labels = []
     with torch.no_grad():
-        for batch in tqdm(loader, total=loader.num // loader.batch_size):
-            if labeled:
-                img = batch[0].cuda()
-                labels.append(batch[1])
-            else:
-                img = batch.cuda()
-            #print('img:', img.size())
-            output = model(img)[0].squeeze()
-            #print(output.size())
+        for inputs in tqdm(loader, total=loader.num // loader.batch_size):
+            inputs = inputs.cuda()
+            output = model(inputs, attention_mask=(inputs>0), labels=None)[:, :1].squeeze()
             outputs.append(torch.sigmoid(output).cpu())
-            #outputs.append(torch.softmax(output, 1).cpu())
     outputs = torch.cat(outputs).numpy()
     print(outputs.shape)
-    if labeled:
-        labels = torch.cat(labels).numpy()
-        return outputs, labels
-    else:
-        return outputs
+    return outputs
 
 def predict(args):
-    model, _ = create_model(args)
+    #model, _ = create_model(args)
+    model = create_model(args)
+    if torch.cuda.device_count() > 1:
+        model = DataParallel(model)
 
-    test_loader = get_test_loader(batch_size=args.val_batch_size)
-    scores = pred_model_output(model, test_loader, labeled=False)
+    test_loader = get_test_loader(batch_size=args.val_batch_size, bert_model=args.bert_model, clean_text=args.clean_text)
+    scores = pred_model_output(model, test_loader)
 
     print(scores.shape)
     print(scores[:2])
@@ -271,16 +281,17 @@ def mean_df(args):
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Landmark detection')
-    parser.add_argument('--run_name', default='', type=str, help='learning rate')
+    parser.add_argument('--run_name', required=True, type=str, help='learning rate')
+    parser.add_argument('--bert_model', default='bert-base-uncased', type=str, help='learning rate')
     parser.add_argument('--lr', default=2e-5, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=1e-6, type=float, help='min learning rate')
-    parser.add_argument('--batch_size', default=160, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=240, type=int, help='batch_size')
     parser.add_argument('--val_batch_size', default=1024, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--iter_val', default=400, type=int, help='start epoch')
-    parser.add_argument('--num_epochs', default=10, type=int, help='epoch')
+    parser.add_argument('--num_epochs', default=1, type=int, help='epoch')
     parser.add_argument('--optim_name', default='BertAdam', choices=['SGD', 'Adam', 'BertAdam'], help='optimizer')
-    parser.add_argument("--warmup", type=float, default=0.01)
+    parser.add_argument("--warmup", type=float, default=0.05)
     parser.add_argument('--lrs', default='plateau', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
@@ -293,6 +304,8 @@ if __name__ == '__main__':
     parser.add_argument('--mean_df', type=str, default=None)
     parser.add_argument('--predict', action='store_true')
     parser.add_argument('--no_first_val', action='store_true')
+    parser.add_argument('--clean_text', action='store_true')
+    parser.add_argument('--ifold', default=0, type=int, help='lr scheduler patience')
     parser.add_argument('--always_save',action='store_true', help='alway save')
     parser.add_argument('--val_num', default=30000, type=int, help='number of val data')
     #parser.add_argument('--img_sz', default=256, type=int, help='image size')
