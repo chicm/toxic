@@ -276,7 +276,7 @@ def create_submission(args, scores):
 
     df.to_csv(args.sub_file, header=True, index=False, columns=['id', 'prediction'])
 
-def mean_df(args):
+def mean_df_old(args):
     df_files = args.mean_df.split(',')
     print(df_files)
     dfs = []
@@ -285,6 +285,33 @@ def mean_df(args):
     mean_pred = np.mean([dfi.prediction.values for dfi in dfs], 0).astype(np.float32)
     dfs[0].prediction = mean_pred
     dfs[0].to_csv(args.sub_file, index=False, header=True)
+
+def mean_df(args):
+    df_files = args.mean_df.split(',')
+    print(df_files)
+    dfs = []
+    for fn in df_files:
+        dfs.append(pd.read_csv(fn))
+    if args.weights is None:
+        w = np.array([1] * len(dfs))
+    else:
+        w = np.array([int(x) for x in args.weights.split(',')])
+    w = w / w.sum()
+    print('w:', w)
+
+    assert len(w) == len(dfs)
+
+    df_sub = pd.read_csv(os.path.join(settings.DATA_DIR, 'test.csv'))
+
+    preds = None
+    for df, weight in zip(dfs, w):
+        if preds is None:
+            preds = df.prediction.values * weight
+        else:
+            preds += df.prediction.values * weight
+
+    df_sub['prediction'] = preds
+    df_sub.to_csv(args.sub_file, header=True, index=False, columns=['id', 'prediction'])
 
 if __name__ == '__main__':
     
@@ -310,13 +337,14 @@ if __name__ == '__main__':
     parser.add_argument('--ckp_name', type=str, default='best_model.pth',help='check point file name')
     parser.add_argument('--sub_file', type=str, default='sub1.csv')
     parser.add_argument('--mean_df', type=str, default=None)
+    parser.add_argument('--weights', type=str, default=None)
     parser.add_argument('--predict', action='store_true')
     parser.add_argument('--use_path', action='store_true')
     parser.add_argument('--no_first_val', action='store_true')
     parser.add_argument('--clean_text', action='store_true')
     parser.add_argument('--ifold', default=0, type=int, help='lr scheduler patience')
     parser.add_argument('--always_save',action='store_true', help='alway save')
-    parser.add_argument('--val_num', default=30000, type=int, help='number of val data')
+    parser.add_argument('--val_num', default=50000, type=int, help='number of val data')
     #parser.add_argument('--img_sz', default=256, type=int, help='image size')
     
     args = parser.parse_args()
