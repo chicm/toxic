@@ -12,7 +12,7 @@ from preprocess import preprocess_text
 import settings
 
 MAX_LEN = 220
-aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat']
+aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat', 'sexual_explicit']
 identity_columns = [
     'male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
     'muslim', 'black', 'white', 'psychiatric_or_mental_illness'
@@ -149,7 +149,10 @@ def get_test_loader(batch_size, model_name, tokenizer, clean_text=False):
     return loader
 
 def test_train_loader():
-    loader, _ = get_train_val_loaders(4, 'bert-base-uncased', ifold=0)
+    from pytorch_pretrained_bert import BertTokenizer
+    loader, _ = get_train_val_loaders(4, 'bert-base-uncased', \
+        BertTokenizer.from_pretrained('bert-base-uncased'), ifold=0)
+
     for ids, labels, aux_labels, weights in loader:
         #print(ids)
         print(labels)
@@ -176,6 +179,6 @@ def test_gpt_tokenizer():
     #    token_ids = tokenizer.encode(text)
 
 if __name__ == '__main__':
-    #test_train_loader()
+    test_train_loader()
     #test_test_loader()
-    test_gpt_tokenizer()
+    #test_gpt_tokenizer()
