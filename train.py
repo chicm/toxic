@@ -12,8 +12,11 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRScheduler, ReduceLROnPlateau
 import settings
 from loader import get_train_val_loaders, get_test_loader
+from models import create_model, convert_model
 #from pytorch_pretrained_bert.optimization import BertAdam
-from pytorch_pretrained_bert import BertTokenizer, BertForSequenceClassification,BertAdam
+from pytorch_pretrained_bert import BertTokenizer, GPT2Tokenizer, BertForSequenceClassification, \
+    BertAdam, GPT2Model, OpenAIAdam
+from pytorch_pretrained_bert.modeling_gpt2 import GPT2PreTrainedModel
 from torch.nn import DataParallel
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
@@ -22,39 +25,6 @@ from torch.nn import DataParallel
 from apex import amp
 
 MODEL_DIR = settings.MODEL_DIR
-
-def create_model(args):
-    if args.use_path:
-        if 'large' in args.bert_model:
-            sub_dir = 'large'
-        else:
-            sub_dir = 'base'
-        model = BertForSequenceClassification.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, sub_dir),cache_dir=None,num_labels=6)
-    else:
-        model = BertForSequenceClassification.from_pretrained(args.bert_model, cache_dir=None, num_labels=6)
-    
-    model_file = os.path.join(settings.MODEL_DIR, '{}_{}_{}'.format(args.bert_model, args.run_name, args.ifold), args.ckp_name)
-
-    parent_dir = os.path.dirname(model_file)
-    if not os.path.exists(parent_dir):
-        os.makedirs(parent_dir)
-
-    if args.init_ckp and os.path.exists(args.init_ckp):
-        print('loading {}...'.format(args.init_ckp))
-        model.load_state_dict(torch.load(args.init_ckp))
-
-    print('model file: {}, exist: {}'.format(model_file, os.path.exists(model_file)))
-
-    if args.predict and (not os.path.exists(model_file)):
-        raise AttributeError('model file does not exist: {}'.format(model_file))
-
-    if os.path.exists(model_file):
-        print('loading {}...'.format(model_file))
-        model.load_state_dict(torch.load(model_file))
-
-    model = model.cuda()
-
-    return model, model_file
 
 
 class FocalLoss(nn.Module):
@@ -80,14 +50,14 @@ def _reduce_loss(loss):
 
 def criterion(output, output_aux, target, target_aux, weights):
     loss1 = _reduce_loss(c(output, target.float()) * weights)
-    loss2 = _reduce_loss(c(output_aux, target_aux.float()) * weights.unsqueeze(-1))
+    loss2 = _reduce_loss(c(output_aux[:, :target_aux.size(1)], target_aux.float()) * weights.unsqueeze(-1))
     return loss1 * 5 + loss2
 
 def train(args):
     print('start training...')
     #model, model_file = create_model(args)
 
-    model, model_file = create_model(args)
+    model, model_file, tokenizer = create_model(args)
 
     # Prepare optimizer
     param_optimizer = list(model.named_parameters())
@@ -97,24 +67,33 @@ def train(args):
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
     
-    train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, bert_model=args.bert_model, ifold=args.ifold, \
-        clean_text=args.clean_text, val_batch_size=args.val_batch_size, val_num=args.val_num)
+    train_loader, val_loader = get_train_val_loaders(batch_size=args.batch_size, model_name=args.model_name, tokenizer=tokenizer, \
+        ifold=args.ifold, clean_text=args.clean_text, val_batch_size=args.val_batch_size, val_num=args.val_num)
 
     num_train_optimization_steps = args.num_epochs * train_loader.num // train_loader.batch_size // 4
 
     #if args.optim_name == 'BertAdam':
-    optimizer = BertAdam(
-        optimizer_grouped_parameters,
-        lr=args.lr,
-        warmup=args.warmup,
-        t_total=num_train_optimization_steps)
+    if 'bert' in args.model_name:
+        optimizer = BertAdam(
+            optimizer_grouped_parameters,
+            lr=args.lr,
+            warmup=args.warmup,
+            t_total=num_train_optimization_steps
+        )
+    else:
+        optimizer = OpenAIAdam(
+            optimizer_grouped_parameters, 
+            lr=args.lr,
+            warmup=args.warmup,
+            t_total=num_train_optimization_steps
+        )
 
     model, optimizer = amp.initialize(model, optimizer, opt_level="O1",verbosity=0)
 
     if torch.cuda.device_count() > 1:
         model = DataParallel(model)
 
-    model=model.train()
+    #model=model.train()
 
     best_f2 = 999.
     best_key = 'roc'
@@ -131,7 +110,7 @@ def train(args):
     if args.val:
         return
 
-    #model.train()
+    model.train()
 
     train_iter = 0
 
@@ -147,7 +126,10 @@ def train(args):
             img, target, target_aux, weights  = data
             img, target, target_aux, weights = img.cuda(), target.cuda(), target_aux.cuda(), weights.cuda()
             
-            output = model(img, attention_mask=(img>0), labels=None)
+            if 'bert' in args.model_name:
+                output = model(img, attention_mask=(img>0), labels=None)
+            else:
+                output = model(img)
             output_cls = output[:, :1].squeeze()
             output_aux = output[:, 1:]
             #output = output.squeeze()
@@ -212,8 +194,10 @@ def validate(args, model: nn.Module, valid_loader):
             inputs, targets, aux_targets, weights = inputs.cuda(), targets.cuda(), aux_targets.cuda(), weights.cuda()
             #outputs, aux_outputs = model(inputs)
             #outputs = outputs.squeeze()
-
-            output = model(inputs, attention_mask=(inputs>0), labels=None)
+            if 'bert' in args.model_name:
+                output = model(inputs, attention_mask=(inputs>0), labels=None)
+            else:
+                output = model(inputs)
             output_cls = output[:, :1].squeeze()
             output_aux = output[:, 1:]
 
@@ -250,19 +234,22 @@ def pred_model_output(model, loader):
     with torch.no_grad():
         for inputs in tqdm(loader, total=loader.num // loader.batch_size):
             inputs = inputs.cuda()
-            output = model(inputs, attention_mask=(inputs>0), labels=None)[:, :1].squeeze()
+            if 'bert' in args.model_name:
+                output = model(inputs, attention_mask=(inputs>0), labels=None)[:, :1].squeeze()
+            else:
+                output = model(inputs)[:, :1].squeeze()
             outputs.append(torch.sigmoid(output).cpu())
     outputs = torch.cat(outputs).numpy()
     print(outputs.shape)
     return outputs
 
 def predict(args):
-    model, _ = create_model(args)
+    model, _, tokenizer = create_model(args)
     #model = create_model(args)
     if torch.cuda.device_count() > 1:
         model = DataParallel(model)
 
-    test_loader = get_test_loader(batch_size=args.val_batch_size, bert_model=args.bert_model, clean_text=args.clean_text)
+    test_loader = get_test_loader(batch_size=args.val_batch_size, model_name=args.model_name, tokenizer=tokenizer, clean_text=args.clean_text)
     scores = pred_model_output(model, test_loader)
 
     print(scores.shape)
@@ -317,7 +304,7 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description='Landmark detection')
     parser.add_argument('--run_name', required=True, type=str, help='learning rate')
-    parser.add_argument('--bert_model', default='bert-base-uncased', type=str, help='learning rate')
+    parser.add_argument('--model_name', default='bert-base-uncased', type=str, help='learning rate')
     parser.add_argument('--lr', default=2e-5, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=1e-6, type=float, help='min learning rate')
     parser.add_argument('--batch_size', default=240, type=int, help='batch_size')
@@ -345,14 +332,18 @@ if __name__ == '__main__':
     parser.add_argument('--ifold', default=0, type=int, help='lr scheduler patience')
     parser.add_argument('--always_save',action='store_true', help='alway save')
     parser.add_argument('--val_num', default=50000, type=int, help='number of val data')
-    #parser.add_argument('--img_sz', default=256, type=int, help='image size')
+    parser.add_argument('--num_classes', default=8, type=int, help='image size')
+    parser.add_argument('--convert_model', action='store_true')
     
     args = parser.parse_args()
     print(args)
     #test_model(args)
     #exit(1)
 
-    if args.mean_df:
+    if args.convert_model:
+        convert_model(args)
+        print('done')
+    elif args.mean_df:
         mean_df(args)
     elif args.predict:
         predict(args)
