@@ -177,7 +177,7 @@ def train(args):
 
 def get_lrs(optimizer):
     lrs = []
-    if isinstance(optimizer, BertAdam):
+    if isinstance(optimizer, (BertAdam, OpenAIAdam)):
         lrs = optimizer.get_lr()
     else:
         for pgs in optimizer.state_dict()['param_groups']:
