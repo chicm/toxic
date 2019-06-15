@@ -95,7 +95,7 @@ def train(args):
 
     #model=model.train()
 
-    best_f2 = 999.
+    best_f2 = 0.
     best_key = 'roc'
 
     print('epoch |    lr     |       %        |  loss  |  avg   |  loss  |  acc   |  prec  | recall |   roc  |  best  | time |  save |')

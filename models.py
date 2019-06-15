@@ -30,23 +30,37 @@ class GPT2ClassificationHeadModel(GPT2PreTrainedModel):
         logits = self.linear(self.dropout(h_conc))
         return logits
 
+sub_dir_dict = {
+    'bert-base-uncased': 'base',
+    'bert-base-cased': 'cased-base',
+    'bert-large-uncased': 'large',
+    'bert-large-cased': 'cased-large',
+    'gpt2': 'gpt2'
+}
+
 def _create_model(args, num_classes=6):
     if args.use_path:
-        if 'large' in args.model_name:
-            sub_dir = 'large'
-        else:
-            sub_dir = 'base'
-        model = BertForSequenceClassification.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, sub_dir),cache_dir=None,num_labels=num_classes)
+        weights_key = os.path.join(settings.BERT_WEIGHT_DIR, sub_dir_dict[args.model_name])
+        assert os.path.isdir(weights_key)
+    else:
+        weights_key = args.model_name
+
+    #if args.use_path:
+    #    if 'large' in args.model_name:
+    #        sub_dir = 'large'
+    #    else:
+    #        sub_dir = 'base'
+    #    model = BertForSequenceClassification.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, sub_dir),cache_dir=None,num_labels=num_classes)
+    #    tokenizer = BertTokenizer.from_pretrained(args.model_name)
+    #else:
+    if 'gpt2' in args.model_name:
+        model = GPT2ClassificationHeadModel.from_pretrained(weights_key, clf_dropout=0.4, n_class=num_classes)
+        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    elif 'bert' in args.model_name:
+        model = BertForSequenceClassification.from_pretrained(weights_key, cache_dir=None, num_labels=num_classes)
         tokenizer = BertTokenizer.from_pretrained(args.model_name)
     else:
-        if 'gpt' in args.model_name:
-            model = GPT2ClassificationHeadModel.from_pretrained('gpt2', clf_dropout=0.4, n_class=num_classes)
-            tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-        elif 'bert' in args.model_name:
-            model = BertForSequenceClassification.from_pretrained(args.model_name, cache_dir=None, num_labels=num_classes)
-            tokenizer = BertTokenizer.from_pretrained(args.model_name)
-        else:
-            raise ValueError('model_name')
+        raise ValueError('model_name')
 
     return model, tokenizer
     
