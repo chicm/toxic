@@ -49,8 +49,12 @@ def _reduce_loss(loss):
     return loss.sum() / loss.shape[0]
 
 def criterion(output, output_aux, target, target_aux, weights):
-    loss1 = _reduce_loss(c(output, target.float()) * weights)
-    loss2 = _reduce_loss(c(output_aux[:, :target_aux.size(1)], target_aux.float()) * weights.unsqueeze(-1))
+    if args.no_weight:
+        loss1 = _reduce_loss(c(output, target.float()))
+        loss2 = _reduce_loss(c(output_aux[:, :target_aux.size(1)], target_aux.float()))
+    else:
+        loss1 = _reduce_loss(c(output, target.float()) * weights)
+        loss2 = _reduce_loss(c(output_aux[:, :target_aux.size(1)], target_aux.float()) * weights.unsqueeze(-1))
     return loss1 * 5 + loss2
 
 def train(args):
@@ -334,6 +338,7 @@ if __name__ == '__main__':
     parser.add_argument('--val_num', default=50000, type=int, help='number of val data')
     parser.add_argument('--num_classes', default=8, type=int, help='image size')
     parser.add_argument('--convert_model', action='store_true')
+    parser.add_argument('--no_weight', action='store_true')
     
     args = parser.parse_args()
     print(args)
