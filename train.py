@@ -50,7 +50,7 @@ def _reduce_loss(loss):
 
 def criterion(output, output_aux, target, target_aux, weights):
     loss1 = _reduce_loss(c(output, target.float()) * weights)
-    loss2 = _reduce_loss(c(output_aux[:, :target_aux.size(1)], target_aux.float()) * weights.unsqueeze(-1))
+    loss2 = _reduce_loss(c(output_aux[:, :target_aux.size(1)], target_aux.float()) )#* weights.unsqueeze(-1))
     #return loss1 * 5 + loss2
     return loss1 * 3.2 + loss2
 
