@@ -80,8 +80,8 @@ def create_model(args):
 
     print('model file: {}, exist: {}'.format(model_file, os.path.exists(model_file)))
 
-    if args.predict and (not os.path.exists(model_file)):
-        raise AttributeError('model file does not exist: {}'.format(model_file))
+    #if args.predict and (not os.path.exists(model_file)):
+    #    raise AttributeError('model file does not exist: {}'.format(model_file))
 
     if os.path.exists(model_file):
         print('loading {}...'.format(model_file))
@@ -142,6 +142,41 @@ def test_forward():
     print(y)
 
 
+def save_model(model_to_save, tokenizer, output_dir):
+    from pytorch_pretrained_bert import WEIGHTS_NAME, CONFIG_NAME
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    #output_dir = "./models/"
+
+    # Step 1: Save a model, configuration and vocabulary that you have fine-tuned
+
+    # If we have a distributed model, save only the encapsulated model
+    # (it was wrapped in PyTorch DistributedDataParallel or DataParallel)
+    #model_to_save = model.module if hasattr(model, 'module') else model
+
+    # If we save using the predefined names, we can load using `from_pretrained`
+    output_model_file = os.path.join(output_dir, WEIGHTS_NAME)
+    output_config_file = os.path.join(output_dir, CONFIG_NAME)
+
+    torch.save(model_to_save.state_dict(), output_model_file)
+    model_to_save.config.to_json_file(output_config_file)
+    tokenizer.save_vocabulary(output_dir)
+
+def save_pytorch_pretrained_models(args):
+    args.ckp_name = 'notexist'
+    
+    model_names = ['bert-base-uncased', 'bert-base-cased', 'bert-large-uncased', 'bert-large-cased', 'gpt2']
+
+    for model_name in model_names:
+        args.model_name = model_name
+        args.num_classes = 8
+        model, _, tokenizer = create_model(args)
+        output_dir = os.path.join(settings.DATA_DIR, 'pytorch-pretrained-models', model_name)
+        print('saving to ', output_dir)
+        save_model(model, tokenizer, output_dir)
+    print('done')
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Landmark detection')
@@ -153,11 +188,14 @@ if __name__ == '__main__':
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--predict', action='store_true')
     parser.add_argument('--convert', action='store_true')
+    parser.add_argument('--save', action='store_true')
     args = parser.parse_args()
 
     if args.convert:
         print('converting model from num_class 6 to 8')
         convert_model(args)
         print('done')
+    elif args.save:
+        save_pytorch_pretrained_models(args)
     #convert_model()
     #test_forward()
