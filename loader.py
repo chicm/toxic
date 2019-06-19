@@ -8,11 +8,12 @@ from sklearn.utils import shuffle
 from sklearn.model_selection import KFold
 from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
 from preprocess import preprocess_text
+from sklearn.preprocessing import LabelEncoder
 
 import settings
 
 MAX_LEN = 220
-aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat', 'sexual_explicit']
+aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat', 'sexual_explicit', 'rating', 'disagree_level']
 identity_columns = [
     'male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
     'muslim', 'black', 'white', 'psychiatric_or_mental_illness'
@@ -54,7 +55,9 @@ class ToxicDataset(data.Dataset):
         return torch.tensor(token_ids[:MAX_LEN])
 
     def get_label(self, row):
-        return int(row.target >= 0.5), torch.tensor((row[aux_columns].values >= 0.5).astype(np.int16)), row.weights
+        #return int(row.target >= 0.5), torch.tensor((row[aux_columns].values >= 0.5).astype(np.int16)), row.weights # binarized target
+        return row.target, torch.tensor((row[aux_columns].values >= 0.5).astype(np.int16)), row.weights # soft target
+
 
     def __getitem__(self, index):
         row = self.df.iloc[index]
@@ -100,12 +103,18 @@ def get_split_df(df, ifold=19):
             break
     return df.iloc[train_index], df.iloc[val_index]
 
+def add_new_targets(df):
+    df['rating'] = LabelEncoder().fit_transform(df['rating'])
+    df['disagree_level'] = df.apply(lambda r: r['disagree'] > r['likes'], axis=1).astype(np.int)
+    df['soft_target'] = df['target'].values.copy()
+
 def get_train_val_loaders(batch_size, model_name, tokenizer, ifold=19, clean_text=False, val_batch_size=256, val_num=10000):
     #tokenizer = BertTokenizer.from_pretrained(model_name)
     #df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train_clean.csv')), random_state=1234)
     df = shuffle(pd.read_csv(os.path.join(settings.DATA_DIR, 'train.csv')), random_state=1234)
     #print(df.head())
     #df.comment_text = preprocess_text(df.comment_text)
+    add_new_targets(df)
     add_loss_weight(df)
     
     print(df.shape)

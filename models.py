@@ -92,7 +92,7 @@ def create_model(args):
     return model, model_file, tokenizer
 
 def convert_model(args):
-    args.num_classes = 6
+    args.num_classes = 8
     model, model_file, _ = create_model(args)
     if 'bert' in args.model_name:
         print(model.classifier.weight.size())
@@ -102,19 +102,19 @@ def convert_model(args):
         print(model.linear.weight.size())
         print(model.linear.bias.size())
         print(model.linear.bias)
-    torch.save(model.state_dict(), model_file+'_num6')
+    torch.save(model.state_dict(), model_file+'_num8')
 
     args.ckp_name = 'tmp123'
-    args.num_classes = 8
+    args.num_classes = 10
     new_model, _, _ = create_model(args)
 
     if 'bert' in args.model_name:
-        new_model.classifier.weight[:6, :] = model.classifier.weight
-        new_model.classifier.bias[:6] = model.classifier.bias
+        new_model.classifier.weight[:8, :] = model.classifier.weight
+        new_model.classifier.bias[:8] = model.classifier.bias
         new_model.bert = model.bert
     elif 'gpt2' in args.model_name:
-        new_model.linear.weight[:6, :] = model.linear.weight
-        new_model.linear.bias[:6] = model.linear.bias
+        new_model.linear.weight[:8, :] = model.linear.weight
+        new_model.linear.bias[:8] = model.linear.bias
         new_model.transformer = model.transformer
     torch.save(new_model.state_dict(), model_file)
 
