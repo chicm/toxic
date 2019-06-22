@@ -179,7 +179,7 @@ def save_pytorch_pretrained_models(args):
         args.model_name = model_name
         args.num_classes = 8
         model, _, tokenizer = create_model(args)
-        output_dir = os.path.join(settings.DATA_DIR, 'pytorch-pretrained-models', model_name)
+        output_dir = os.path.join(settings.BERT_WEIGHT_DIR, model_name)
         print('saving to ', output_dir)
         save_model(model, tokenizer, output_dir)
     print('done')
