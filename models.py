@@ -35,7 +35,8 @@ sub_dir_dict = {
     'bert-base-cased': 'cased-base',
     'bert-large-uncased': 'large',
     'bert-large-cased': 'cased-large',
-    'gpt2': 'gpt2'
+    'gpt2': 'gpt2',
+    'gpt2-median': 'gpt2-median'
 }
 
 def _create_model(args, num_classes=6):

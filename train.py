@@ -336,7 +336,7 @@ if __name__ == '__main__':
     parser.add_argument('--ifold', default=0, type=int, help='lr scheduler patience')
     parser.add_argument('--always_save',action='store_true', help='alway save')
     parser.add_argument('--val_num', default=50000, type=int, help='number of val data')
-    parser.add_argument('--num_classes', default=8, type=int, help='image size')
+    parser.add_argument('--num_classes', default=10, type=int, help='image size')
     parser.add_argument('--convert_model', action='store_true')
     parser.add_argument('--no_weight', action='store_true')
     
