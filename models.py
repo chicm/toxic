@@ -11,11 +11,12 @@ from pytorch_pretrained_bert.modeling_gpt2 import GPT2PreTrainedModel
 import settings
 
 class GPT2ClassificationHeadModel(GPT2PreTrainedModel):
-    def __init__(self, config, clf_dropout=0.4, n_class=8):
+    def __init__(self, config, clf_dropout=0.8, n_class=10):
         super(GPT2ClassificationHeadModel, self).__init__(config)
         self.transformer = GPT2Model(config)
         self.dropout = nn.Dropout(clf_dropout)
         self.linear = nn.Linear(config.n_embd * 2, n_class)
+        self.p_dropout = clf_dropout
 
         nn.init.normal_(self.linear.weight, std = 0.02)
         nn.init.normal_(self.linear.bias, 0)
@@ -27,7 +28,9 @@ class GPT2ClassificationHeadModel(GPT2PreTrainedModel):
         avg_pool = torch.mean(hidden_states, 1)
         max_pool, _ = torch.max(hidden_states, 1)
         h_conc = torch.cat((avg_pool, max_pool), 1)
-        logits = self.linear(self.dropout(h_conc))
+        #logits = self.linear(self.dropout(h_conc))
+        logits = self.linear(F.dropout(h_conc, p=self.p_dropout, training=self.training))
+        
         return logits
 
 sub_dir_dict = {
@@ -36,6 +39,7 @@ sub_dir_dict = {
     'bert-large-uncased': 'large',
     'bert-large-cased': 'cased-large',
     'gpt2': 'gpt2',
+    'gpt2-sp': 'gpt2-sp',
     'gpt2-median': 'gpt2-median'
 }
 
@@ -55,8 +59,10 @@ def _create_model(args, num_classes=6):
     #    tokenizer = BertTokenizer.from_pretrained(args.model_name)
     #else:
     if 'gpt2' in args.model_name:
-        model = GPT2ClassificationHeadModel.from_pretrained(weights_key, clf_dropout=0.4, n_class=num_classes)
-        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        model = GPT2ClassificationHeadModel.from_pretrained(weights_key, clf_dropout=0.8, n_class=num_classes)
+        special_tokens = ['[CLS]', '[SEP]']
+        tokenizer = GPT2Tokenizer.from_pretrained('gpt2', special_tokens=special_tokens)
+        #tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     elif 'bert' in args.model_name:
         model = BertForSequenceClassification.from_pretrained(weights_key, cache_dir=None, num_labels=num_classes)
         tokenizer = BertTokenizer.from_pretrained(args.model_name)
@@ -178,6 +184,34 @@ def save_pytorch_pretrained_models(args):
         save_model(model, tokenizer, output_dir)
     print('done')
 
+def save_gpt2_special(args):
+    args.model_name = 'gpt2'
+    model, tok = _create_model(args, 10)
+    wte = model.transformer.wte
+    vocab_size = wte.weight.size(0)
+    print(wte.weight.size())
+    print(wte)
+    new_wte = nn.Embedding(vocab_size+2, wte.weight.size(1))
+    new_wte.weight[:vocab_size] = wte.weight
+
+    model.transformer.wte = new_wte
+
+    output_dir = os.path.join(settings.DATA_DIR, 'pytorch-pretrained-models', 'gpt2-sp')
+
+    save_model(model, tok, output_dir)
+
+def test_special_tokens(args):
+    special_tokens = ['[CLS]', '[SEP]']
+    #tokenizer = OpenAIGPTTokenizer.from_pretrained(args.model_name, special_tokens=special_tokens)
+    
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', special_tokens=special_tokens)
+    special_tokens_ids = list(tokenizer.convert_tokens_to_ids(token) for token in special_tokens)
+    args.model_name = 'gpt2'
+    model, tokenizer = _create_model(args, num_classes=10)
+    model.transformer.wte
+
+    print(special_tokens_ids)
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Landmark detection')
@@ -191,6 +225,10 @@ if __name__ == '__main__':
     parser.add_argument('--convert', action='store_true')
     parser.add_argument('--save', action='store_true')
     args = parser.parse_args()
+
+    #test_special_tokens(args)
+    save_gpt2_special(args)
+    exit(0)
 
     if args.convert:
         print('converting model from num_class 6 to 8')

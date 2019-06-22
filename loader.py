@@ -6,13 +6,13 @@ import torch.utils.data as data
 from torchvision import datasets, models, transforms
 from sklearn.utils import shuffle
 from sklearn.model_selection import KFold
-from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
+from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM, GPT2Tokenizer
 from preprocess import preprocess_text
 
 import settings
 
 MAX_LEN = 220
-aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat', 'sexual_explicit']
+aux_columns = ['severe_toxicity', 'obscene', 'identity_attack', 'insult', 'threat'] #, 'sexual_explicit']
 identity_columns = [
     'male', 'female', 'homosexual_gay_or_lesbian', 'christian', 'jewish',
     'muslim', 'black', 'white', 'psychiatric_or_mental_illness'
@@ -34,16 +34,17 @@ def preprocess(data):
 '''
 
 class ToxicDataset(data.Dataset):
-    def __init__(self, df, tokenizer, train_mode=True, labeled=True, bert=True):
+    def __init__(self, df, tokenizer, train_mode=True, labeled=True, sp=True):
         super(ToxicDataset, self).__init__()
         self.df = df
         self.train_mode = train_mode
         self.labeled = labeled
         self.tokenizer = tokenizer
-        self.bert = bert
+        self.sp = sp
 
     def get_token_ids(self, text):
-        if self.bert:
+        #if self.bert:
+        if self.sp:
             tokens = ['[CLS]'] + self.tokenizer.tokenize(str(text))[:MAX_LEN-2] + ['[SEP]']
         else:
             tokens = self.tokenizer.tokenize(str(text))[:MAX_LEN]
@@ -121,13 +122,13 @@ def get_train_val_loaders(batch_size, model_name, tokenizer, ifold=19, clean_tex
     
     print(df_train.head())
     print(df_val.head())
-    bert = ('bert' in model_name)
+    sp = ('bert' in model_name) or (model_name == 'gpt2-sp')
 
-    ds_train = ToxicDataset(df_train, tokenizer, bert=bert)
+    ds_train = ToxicDataset(df_train, tokenizer, sp=sp)
     train_loader = data.DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=8, collate_fn=ds_train.collate_fn, drop_last=True)
     train_loader.num = len(df_train)
 
-    ds_val = ToxicDataset(df_val, tokenizer, bert=bert)
+    ds_val = ToxicDataset(df_val, tokenizer, sp=sp)
     val_loader = data.DataLoader(ds_val, batch_size=val_batch_size, shuffle=False, num_workers=8, collate_fn=ds_val.collate_fn, drop_last=False)
     val_loader.num = len(df_val)
     val_loader.df = df_val
@@ -141,8 +142,8 @@ def get_test_loader(batch_size, model_name, tokenizer, clean_text=False):
     #print(df.head())
     #df.comment_text = preprocess_text(df.comment_text)
     #print(df.head())
-    bert = ('bert' in model_name)
-    ds_test = ToxicDataset(df, tokenizer, train_mode=False, labeled=False, bert=bert)
+    sp = ('bert' in model_name) or (model_name == 'gpt2-sp')
+    ds_test = ToxicDataset(df, tokenizer, train_mode=False, labeled=False, sp=sp)
     loader = data.DataLoader(ds_test, batch_size=batch_size, shuffle=False, num_workers=8, collate_fn=ds_test.collate_fn, drop_last=False)
     loader.num = len(df)
 
@@ -161,7 +162,9 @@ def test_train_loader():
         break
 
 def test_test_loader():
-    loader = get_test_loader(4)
+    special_tokens = ['[CLS]', '[SEP]']
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', special_tokens=special_tokens)
+    loader = get_test_loader(4, 'gpt2-sp', tokenizer)
     for ids in loader:
         print(ids.shape)
         print(ids)
@@ -179,6 +182,6 @@ def test_gpt_tokenizer():
     #    token_ids = tokenizer.encode(text)
 
 if __name__ == '__main__':
-    test_train_loader()
-    #test_test_loader()
+    #test_train_loader()
+    test_test_loader()
     #test_gpt_tokenizer()
