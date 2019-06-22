@@ -196,7 +196,7 @@ def save_gpt2_special(args):
 
     model.transformer.wte = new_wte
 
-    output_dir = os.path.join(settings.DATA_DIR, 'pytorch-pretrained-models', 'gpt2-sp')
+    output_dir = os.path.join(settings.BERT_WEIGHT_DIR, 'gpt2-sp')
 
     save_model(model, tok, output_dir)
 
