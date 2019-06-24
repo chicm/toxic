@@ -36,6 +36,8 @@ sub_dir_dict = {
     'bert-base-cased': 'cased-base',
     'bert-large-uncased': 'large',
     'bert-large-cased': 'cased-large',
+    'bert-large-cased-wwm': 'wwm-cased',
+    'bert-large-uncase-wwm': 'wwm-uncased',
     'gpt2': 'gpt2',
     'gpt2-sp': 'gpt2-sp',
     'gpt2-median': 'gpt2-median'
@@ -43,10 +45,18 @@ sub_dir_dict = {
 
 def _create_model(args, num_classes=6):
     if args.use_path:
-        weights_key = os.path.join(settings.BERT_WEIGHT_DIR, sub_dir_dict[args.model_name])
+        k = args.model_name
+        if args.run_name == 'wwm':
+            k += '-wwm'
+        print('key:', k)
+
+        weights_key = os.path.join(settings.BERT_WEIGHT_DIR, sub_dir_dict[k])
+        print('w dir:', weights_key)
         assert os.path.isdir(weights_key)
     else:
         weights_key = args.model_name
+        if args.run_name == 'wwm':
+            raise AssertionError('please specify --use_path')
 
     #if args.use_path:
     #    if 'large' in args.model_name:
@@ -60,8 +70,9 @@ def _create_model(args, num_classes=6):
         model = GPT2ClassificationHeadModel.from_pretrained(weights_key, clf_dropout=0.6, n_class=num_classes)
         tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     elif 'bert' in args.model_name:
+        lower_case = ('uncased' in args.model_name)
         model = BertForSequenceClassification.from_pretrained(weights_key, cache_dir=None, num_labels=num_classes)
-        tokenizer = BertTokenizer.from_pretrained(args.model_name)
+        tokenizer = BertTokenizer.from_pretrained(args.model_name, do_lower_case=lower_case)
     else:
         raise ValueError('model_name')
 
