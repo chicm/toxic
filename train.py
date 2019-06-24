@@ -23,6 +23,7 @@ from sklearn.metrics import roc_auc_score
 from metrics import auc_score
 from torch.nn import DataParallel
 from apex import amp
+import random
 
 MODEL_DIR = settings.MODEL_DIR
 
@@ -247,7 +248,19 @@ def pred_model_output(model, loader):
     print(outputs.shape)
     return outputs
 
+def chicm_seed_everything(seed = 2019,device='cuda'):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+
+
 def predict(args):
+    chicm_seed_everything()
+
     model, _, tokenizer = create_model(args)
     #model = create_model(args)
     if torch.cuda.device_count() > 1:
