@@ -10,6 +10,77 @@ from pytorch_pretrained_bert.modeling_gpt2 import GPT2PreTrainedModel
 
 import settings
 
+class GPT2Plus(nn.Module):
+
+    def __init__(self, clf_dropout=0.4, n_class=10):
+        super(GPT2Plus, self).__init__()
+        #self.transformer = GPT2Model(config)
+        self.transformer = GPT2Model.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, 'gpt2-orig'))
+        self.dropout = nn.Dropout(clf_dropout)
+        #self.linear = nn.Linear(config.n_embd * 2, n_class)
+        n_embd = 768
+        
+        self.linear1 = nn.Linear(n_embd * 4, n_embd * 4)
+        self.linear2 = nn.Linear(n_embd * 4, n_embd * 4)
+
+        self.linear_out = nn.Linear(n_embd * 4, n_class)
+        #self.linear_aux_out = nn.Linear(n_embd * 4, n_class)
+
+        #nn.init.normal_(self.linear.weight, std=0.02)
+        #nn.init.normal_(self.linear.bias, 0)
+
+        #self.apply(self.init_weights)
+
+        self.embedding_dropout = nn.Dropout(0.4)
+        
+        self.lstm1 = nn.LSTM(n_embd, n_embd, bidirectional=True, batch_first=True)
+        self.lstm2 = nn.LSTM(n_embd * 2, n_embd, bidirectional=True, batch_first=True)
+
+
+    def forward(self, input_ids, position_ids=None, token_type_ids=None, lm_labels=None, past=None):
+        hidden_states, presents = self.transformer(input_ids, position_ids, token_type_ids, past)
+        h_lstm1, _ = self.lstm1(hidden_states)
+        h_lstm2, _ = self.lstm2(h_lstm1)
+        
+        avg_pool = torch.mean(h_lstm2, 1)
+        max_pool, _ = torch.max(h_lstm2, 1)
+        
+        h_conc = torch.cat((max_pool, avg_pool), 1)
+        h_conc_linear1  = F.relu(self.linear1(h_conc))
+        h_conc_linear2  = F.relu(self.linear2(h_conc))
+
+        hidden = h_conc + h_conc_linear1 + h_conc_linear2
+        result = self.linear_out(hidden)
+        #aux_result = self.linear_aux_out(hidden)
+        #out = torch.cat([result, aux_result], 1)
+        
+        #h_conc = torch.cat((avg_pool, max_pool), 1)
+        #logits = self.linear(self.dropout(h_conc))
+        return result
+
+class GPT2Simple(nn.Module):
+    def __init__(self, clf_dropout=0.6, n_class=10):
+        super(GPT2Simple, self).__init__()
+        self.transformer = GPT2Model.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, 'gpt2-orig'))
+        self.dropout = nn.Dropout(clf_dropout)
+        self.linear = nn.Linear(768 * 2, n_class)
+
+        #nn.init.normal_(self.linear.weight, std = 0.02)
+        #nn.init.normal_(self.linear.bias, 0)
+
+        #self.apply(self.init_weights)
+
+    def forward(self, input_ids, position_ids=None, token_type_ids=None, lm_labels=None, past=None):
+        hidden_states, presents = self.transformer(input_ids, position_ids, token_type_ids, past)
+        print('h:', hidden_states.size())
+        avg_pool = torch.mean(hidden_states, 1)
+        max_pool, _ = torch.max(hidden_states, 1)
+        h_conc = torch.cat((avg_pool, max_pool), 1)
+        logits = self.linear(self.dropout(h_conc))
+
+        return logits
+
+
 class GPT2ClassificationHeadModel(GPT2PreTrainedModel):
     def __init__(self, config, clf_dropout=0.6, n_class=10):
         super(GPT2ClassificationHeadModel, self).__init__(config)
@@ -37,7 +108,7 @@ sub_dir_dict = {
     'bert-large-uncased': 'large',
     'bert-large-cased': 'cased-large',
     'bert-large-cased-wwm': 'wwm-cased',
-    'bert-large-uncase-wwm': 'wwm-uncased',
+    'bert-large-uncased-wwm': 'wwm-uncased',
     'gpt2': 'gpt2',
     'gpt2-sp': 'gpt2-sp',
     'gpt2-median': 'gpt2-median'
@@ -66,7 +137,13 @@ def _create_model(args, num_classes=6):
     #    model = BertForSequenceClassification.from_pretrained(os.path.join(settings.BERT_WEIGHT_DIR, sub_dir),cache_dir=None,num_labels=num_classes)
     #    tokenizer = BertTokenizer.from_pretrained(args.model_name)
     #else:
-    if 'gpt2' in args.model_name:
+    if args.model_name == 'gpt2-plus':
+        model = GPT2Plus()
+        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    elif args.model_name == 'gpt2-simple':
+        model = GPT2Simple()
+        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    elif 'gpt2' in args.model_name:
         model = GPT2ClassificationHeadModel.from_pretrained(weights_key, clf_dropout=0.6, n_class=num_classes)
         tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     elif 'bert' in args.model_name:
@@ -207,6 +284,12 @@ def save_gpt2_special(args):
 
     save_model(model, tok, output_dir)
 
+def save_gpt2_orig(args):
+    args.model_name = 'gpt2'
+    model, tok = _create_model(args, 10)
+    output_dir = os.path.join(settings.BERT_WEIGHT_DIR, 'gpt2-orig')
+    save_model(model.transformer, tok, output_dir)
+
 def test_special_tokens(args):
     special_tokens = ['[CLS]', '[SEP]']
     #tokenizer = OpenAIGPTTokenizer.from_pretrained(args.model_name, special_tokens=special_tokens)
@@ -218,6 +301,18 @@ def test_special_tokens(args):
     model.transformer.wte
 
     print(special_tokens_ids)
+
+def test_gpt2_plus():
+    x = torch.tensor([[1,3,4]]*2).cuda()
+    model = GPT2Plus().cuda()
+    y = model(x)
+    print(y.size(), y)
+
+def test_gpt2_simple():
+    x = torch.tensor([[1,3,4]]*2).cuda()
+    model = GPT2Simple().cuda()
+    y = model(x)
+    print(y)
 
 if __name__ == '__main__':
     import argparse
@@ -234,7 +329,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     #test_special_tokens(args)
-    save_gpt2_special(args)
+    #save_gpt2_special(args)
+    #save_gpt2_orig(args)
+    #test_gpt2_plus()
+    test_gpt2_simple()
     exit(0)
 
     if args.convert:
