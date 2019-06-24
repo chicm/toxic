@@ -11,12 +11,11 @@ from pytorch_pretrained_bert.modeling_gpt2 import GPT2PreTrainedModel
 import settings
 
 class GPT2ClassificationHeadModel(GPT2PreTrainedModel):
-    def __init__(self, config, clf_dropout=0.8, n_class=10):
+    def __init__(self, config, clf_dropout=0.6, n_class=10):
         super(GPT2ClassificationHeadModel, self).__init__(config)
         self.transformer = GPT2Model(config)
         self.dropout = nn.Dropout(clf_dropout)
         self.linear = nn.Linear(config.n_embd * 2, n_class)
-        self.p_dropout = clf_dropout
 
         nn.init.normal_(self.linear.weight, std = 0.02)
         nn.init.normal_(self.linear.bias, 0)
@@ -28,8 +27,7 @@ class GPT2ClassificationHeadModel(GPT2PreTrainedModel):
         avg_pool = torch.mean(hidden_states, 1)
         max_pool, _ = torch.max(hidden_states, 1)
         h_conc = torch.cat((avg_pool, max_pool), 1)
-        #logits = self.linear(self.dropout(h_conc))
-        logits = self.linear(F.dropout(h_conc, p=self.p_dropout, training=self.training))
+        logits = self.linear(self.dropout(h_conc))
         
         return logits
 
@@ -59,10 +57,8 @@ def _create_model(args, num_classes=6):
     #    tokenizer = BertTokenizer.from_pretrained(args.model_name)
     #else:
     if 'gpt2' in args.model_name:
-        model = GPT2ClassificationHeadModel.from_pretrained(weights_key, clf_dropout=0.8, n_class=num_classes)
-        special_tokens = ['[CLS]', '[SEP]']
-        tokenizer = GPT2Tokenizer.from_pretrained('gpt2', special_tokens=special_tokens)
-        #tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+        model = GPT2ClassificationHeadModel.from_pretrained(weights_key, clf_dropout=0.6, n_class=num_classes)
+        tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     elif 'bert' in args.model_name:
         model = BertForSequenceClassification.from_pretrained(weights_key, cache_dir=None, num_labels=num_classes)
         tokenizer = BertTokenizer.from_pretrained(args.model_name)
